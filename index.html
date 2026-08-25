@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Industrial Field Task List - Shared Ops</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Inter:wght@400;500;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; -webkit-tap-highlight-color: transparent; }
+        .mono-font { font-family: 'Share Tech Mono', monospace; }
+        .completed-task { opacity: 0.4; text-decoration: line-through; }
+        
+        input[type=range] {
+            height: 12px;
+            border-radius: 4px;
+            appearance: none;
+            background: #27272a;
+            border: 1px solid #52525b;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            appearance: none;
+            width: 36px;
+            height: 28px;
+            border-radius: 4px;
+            background: #0ea5e9;
+            cursor: pointer;
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.3), 0 2px 6px rgba(0,0,0,0.6);
+            border: 1px solid #0284c7;
+        }
+        input[type=range]::-webkit-slider-thumb:active {
+            transform: scale(1.05);
+            background: #0284c7;
+        }
+
+        input[type=checkbox] {
+            appearance: none;
+            background-color: #09090b;
+            border: 1.5px solid #71717a;
+            border-radius: 0.375rem;
+            cursor: pointer;
+            display: grid;
+            place-content: center;
+            transition: all 0.2s ease;
+        }
+        input[type=checkbox]::before {
+            content: "";
+            width: 0.65rem;
+            height: 0.65rem;
+            transform: scale(0);
+            transition: 120ms transform ease-in-out;
+            box-shadow: inset 1em 1em #22c55e;
+            transform-origin: center;
+            clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%);
+        }
+        input[type=checkbox]:checked {
+            background-color: #052e16;
+            border-color: #22c55e;
+        }
+        input[type=checkbox]:checked::before {
+            transform: scale(1);
+        }
+    </style>
+</head>
+<body class="bg-zinc-950 text-zinc-100 min-h-screen pb-20 antialiased selection:bg-cyan-500 selection:text-white">
+    <!-- Header with Live Watermarks and Connection Status -->
+    <header class="bg-zinc-900 text-zinc-100 pt-6 pb-8 px-5 border-b-4 border-cyan-500 shadow-2xl relative overflow-hidden">
+        <div id="header-watermark-tl" class="absolute left-2 -top-2 opacity-20 font-bold text-[7rem] leading-none mono-font pointer-events-none select-none text-zinc-600 tracking-tighter transition-all duration-300 z-0">0%</div>
+        <div id="header-watermark-br" class="absolute -right-6 -bottom-10 opacity-15 font-bold text-[11rem] leading-none mono-font pointer-events-none select-none text-cyan-400 tracking-tighter transition-all duration-300 z-0">0%</div>
+
+        <div class="max-w-md mx-auto relative z-10">
+            <!-- Top Bar: Connection & Reset -->
+            <div class="flex justify-between items-center mb-3 text-xs mono-font">
+                <div class="flex items-center gap-2 bg-zinc-800/90 px-2.5 py-1 rounded border border-zinc-700">
+                    <span id="conn-indicator" class="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
+                    <span id="conn-text" class="text-zinc-300 uppercase tracking-wider text-[10px]">Connecting...</span>
+                    <span id="ping-text" class="text-zinc-500 text-[10px] pl-1 border-l border-zinc-700">--ms</span>
+                </div>
+                <div class="flex gap-1.5">
+                    <button onclick="toggleDebugConsole()" class="uppercase bg-zinc-800 hover:bg-zinc-700 text-cyan-400 px-2.5 py-1.5 rounded transition border border-zinc-700 font-semibold text-[10px]">Debug</button>
+                    <button onclick="resetTasks()" class="uppercase bg-zinc-800 hover:bg-zinc-700 text-zinc-200 px-3 py-1.5 rounded transition border border-zinc-600 active:scale-95 shadow-sm font-semibold text-[10px]">Reset Docs</button>
+                </div>
+            </div>
+
+            <div class="flex justify-between items-center mb-4">
+                <div>
+                    <span id="sync-mode-badge" class="text-[11px] mono-font uppercase tracking-wider bg-cyan-500/20 backdrop-blur text-cyan-300 px-2.5 py-1 rounded font-bold border border-cyan-500/40">STATUS: INITIALIZING</span>
+                    <h1 class="text-2xl font-bold mt-2 tracking-tight uppercase font-mono text-white">Job Site Checklist</h1>
+                </div>
+            </div>
+            
+            <!-- Progress Bar -->
+            <div class="mt-6 bg-zinc-950 p-4 rounded-lg border border-zinc-700/80 shadow-inner">
+                <div class="flex justify-between text-xs mb-2 font-mono uppercase tracking-wider font-semibold">
+                    <span id="progress-text" class="text-zinc-300">0 of 0 completed</span>
+                    <span id="progress-percent" class="text-cyan-400 font-bold">0%</span>
+                </div>
+                <div class="w-full bg-zinc-900 h-3 rounded-sm overflow-hidden p-0.5 border border-zinc-700">
+                    <div id="progress-bar" class="bg-cyan-500 h-full rounded-sm transition-all duration-300 w-0 shadow-[0_0_10px_rgba(6,182,212,0.6)]"></div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="max-w-md mx-auto px-4 mt-6 space-y-4">
+        <!-- Filter Tabs -->
+        <div class="flex bg-zinc-900 p-1 rounded-lg border border-zinc-700 text-xs font-mono uppercase shadow-sm">
+            <button onclick="setFilter('all')" id="filter-all" class="flex-1 py-2.5 rounded bg-cyan-600 text-white font-bold transition shadow">All Ops</button>
+            <button onclick="setFilter('active')" id="filter-active" class="flex-1 py-2.5 rounded text-zinc-300 transition hover:text-white font-semibold">Pending</button>
+            <button onclick="setFilter('completed')" id="filter-completed" class="flex-1 py-2.5 rounded text-zinc-300 transition hover:text-white font-semibold">Done</button>
+        </div>
+
+        <!-- Task List Container -->
+        <div id="task-list" class="space-y-3.5">
+            <div class="text-center py-10 bg-zinc-900 rounded-lg border border-zinc-700">
+                <p class="text-zinc-400 text-xs font-mono uppercase tracking-wider font-semibold animate-pulse">Loading live site data...</p>
+            </div>
+        </div>
+
+        <!-- Add Custom Task Form -->
+        <div class="mt-8 bg-zinc-900 p-5 rounded-lg border border-zinc-700 shadow-lg">
+            <h3 class="text-xs font-mono uppercase tracking-wider text-zinc-200 mb-3 flex items-center gap-2 font-bold">
+                <span class="text-cyan-400">[+]</span> Add Shared Directive
+            </h3>
+            <form onsubmit="addNewTask(event)" class="space-y-3">
+                <input type="text" id="new-task-title" placeholder="e.g., Secure perimeter gate" required
+                    class="w-full px-4 py-3 rounded border border-zinc-700 text-sm focus:outline-none focus:border-cyan-500 bg-zinc-950 text-zinc-100 placeholder-zinc-500 font-medium">
+                <div class="flex gap-2">
+                    <select id="new-task-category" class="flex-1 px-3 py-2.5 rounded border border-zinc-700 text-xs font-mono uppercase bg-zinc-950 text-zinc-200 font-semibold focus:outline-none focus:border-cyan-500">
+                        <option value="Indoor">Indoor</option>
+                        <option value="Garage">Garage</option>
+                        <option value="Yard & Outdoor">Yard & Outdoor</option>
+                        <option value="Pool & Patio">Pool & Patio</option>
+                    </select>
+                    <button type="submit" class="bg-cyan-600 hover:bg-cyan-500 text-white font-mono uppercase font-bold px-5 py-2.5 rounded text-xs transition shadow active:scale-95">Commit</button>
+                </div>
+            </form>
+        </div>
+    </main>
+
+    <!-- Connection Debug Console Modal -->
+    <div id="debug-console-modal" class="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex items-center justify-center p-4">
+        <div class="bg-zinc-900 border-2 border-cyan-500/80 rounded-lg p-5 max-w-sm w-full shadow-[0_0_30px_rgba(6,182,212,0.3)]">
+            <div class="flex items-center justify-between mb-3 pb-2 border-b border-zinc-800">
+                <div class="flex items-center gap-2">
+                    <span id="debug-dot" class="w-3 h-3 rounded-full bg-amber-500 animate-ping"></span>
+                    <h3 class="text-xs font-mono uppercase font-bold text-cyan-400 tracking-wider">Connection Debugger</h3>
+                </div>
+                <span id="debug-timer" class="text-[10px] font-mono text-zinc-500">Active</span>
+            </div>
+            <p id="debug-subtitle" class="text-xs font-mono text-zinc-300 mb-4 leading-relaxed">
+                Evaluating Firebase cloud socket connection and authentication state...
+            </p>
+            <div id="debug-log-box" class="bg-zinc-950 p-3 rounded border border-zinc-800 h-40 overflow-y-auto font-mono text-[10px] text-zinc-400 space-y-1.5 select-all">
+                <div>[SYSTEM] Initializing client scripts...</div>
+            </div>
+            <div class="mt-4 pt-3 border-t border-zinc-800 flex justify-between items-center">
+                <span class="text-[10px] font-mono text-zinc-500">Stays open until closed</span>
+                <button onclick="closeDebugConsole()" class="bg-cyan-600 hover:bg-cyan-500 text-white px-4 py-2 rounded text-xs font-mono uppercase font-bold shadow">Hide Overlay</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Custom Modal for Alerts -->
+    <div id="custom-modal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-zinc-900 border border-zinc-700 rounded-lg p-6 max-w-sm w-full shadow-2xl">
+            <h3 id="modal-title" class="text-sm font-mono uppercase font-bold text-cyan-400 mb-2">System Notice</h3>
+            <p id="modal-message" class="text-xs font-mono text-zinc-300 mb-5 leading-relaxed"></p>
+            <div id="modal-actions" class="flex gap-2 justify-end">
+                <button onclick="closeModal()" class="bg-zinc-800 hover:bg-zinc-700 text-zinc-200 px-4 py-2 rounded text-xs font-mono uppercase font-semibold">Dismiss</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Firebase & Application Script Logic -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, doc, setDoc, getDocs, onSnapshot, writeBatch } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        function logDebug(msg, type = 'info') {
+            const box = document.getElementById('debug-log-box');
+            if (!box) return;
+            const colorClass = type === 'error' ? 'text-red-400 font-bold' : (type === 'success' ? 'text-emerald-400 font-bold' : 'text-zinc-300');
+            const time = new Date().toISOString().slice(11, 19);
+            box.innerHTML += `<div class="${colorClass}">[${time}] ${msg}</div>`;
+            box.scrollTop = box.scrollHeight;
+        }
+
+        window.closeDebugConsole = function() {
+            document.getElementById('debug-console-modal').classList.add('hidden');
+        };
+
+        window.toggleDebugConsole = function() {
+            const modal = document.getElementById('debug-console-modal');
+            modal.classList.toggle('hidden');
+        };
+
+        function setStatusState(state, pingMs = 0) {
+            const indicator = document.getElementById('conn-indicator');
+            const text = document.getElementById('conn-text');
+            const pingText = document.getElementById('ping-text');
+            const badge = document.getElementById('sync-mode-badge');
+            const debugDot = document.getElementById('debug-dot');
+
+            if (state === 'online') {
+                indicator.className = "w-2 h-2 rounded-full bg-emerald-500";
+                text.innerText = "ONLINE SYNC";
+                badge.innerText = "STATUS: CLOUD SYNCED";
+                pingText.innerText = `${pingMs}ms`;
+                if (debugDot) debugDot.className = "w-3 h-3 rounded-full bg-emerald-500";
+            } else {
+                indicator.className = "w-2 h-2 rounded-full bg-amber-500 animate-pulse";
+                text.innerText = "CONNECTING...";
+                badge.innerText = "STATUS: CONNECTING";
+                pingText.innerText = "--ms";
+                if (debugDot) debugDot.className = "w-3 h-3 rounded-full bg-amber-500 animate-ping";
+            }
+        }
+
+        let currentFilter = 'all';
+        let tasks = [];
+        let dbRef = null;
+        let tasksCollectionRef = null;
+
+        const defaultTasks = [
+            { id: "1", title: "Fix living room curtain rod & brackets", category: "Indoor", completed: false, notes: "Secure loose anchor screws and check tension." },
+            { id: "2", title: "Clean and rearrange garage", category: "Garage", completed: false, notes: "Sort bins, sweep floor, create clear walkways." },
+            { id: "3", title: "Install tool & rake holder on garage wall", category: "Garage", completed: false, notes: "Find stud with stud finder before mounting rack." },
+            { id: "4", title: "Acquire 10 bags of mulch from Home Depot", category: "Yard & Outdoor", type: "counter", current: 0, target: 10, completed: false, notes: "Tap buttons to track payload units (0/10)" },
+            { id: "5", title: "Pick up stone from Home Depot", category: "Yard & Outdoor", completed: false, notes: "Verify quantities and stone grade prior to dispatch." },
+            { id: "6", title: "Spread mulch in garden beds", category: "Yard & Outdoor", type: "slider", progress: 0, completed: false, notes: "Adjust slider to 100% to finalize spreading operation." },
+            { id: "7", title: "Lay down stone / gravel", category: "Yard & Outdoor", completed: false, notes: "Spread evenly over weed barrier fabric." },
+            { id: "8", title: "Touch up white paint around pool area", category: "Pool & Patio", completed: false, notes: "Scrape flaky areas, prime, and apply weather-resistant white paint." },
+            { id: "9", title: "Cut down palm limbs in backyard", category: "Yard & Outdoor", completed: false, notes: "Wear PPE gear, trim close to trunk safely." },
+            { id: "10", title: "Clean and degrease BBQ grill", category: "Yard & Outdoor", completed: false, notes: "Soak grates in warm soapy water, scrub burners." },
+            { id: "11", title: "Touch up nicks and scuffs on indoor walls", category: "Indoor", completed: false, notes: "Use matching wall paint sample and small artist brush." }
+        ];
+
+        function showModal(title, message, customActionsHTML = null) {
+            document.getElementById('modal-title').innerText = title;
+            document.getElementById('modal-message').innerText = message;
+            const actionsContainer = document.getElementById('modal-actions');
+            if (customActionsHTML) {
+                actionsContainer.innerHTML = customActionsHTML;
+            } else {
+                actionsContainer.innerHTML = `<button onclick="closeModal()" class="bg-cyan-600 hover:bg-cyan-500 text-white px-4 py-2 rounded text-xs font-mono uppercase font-semibold">Acknowledge</button>`;
+            }
+            document.getElementById('custom-modal').classList.remove('hidden');
+        }
+
+        window.closeModal = function() {
+            document.getElementById('custom-modal').classList.add('hidden');
+        };
+
+        // Initialize Firebase with provided config
+        async function initFirebase() {
+            try {
+                logDebug("Loading hardcoded Firebase configuration...");
+                const firebaseConfig = {
+                  apiKey: "AIzaSyBQEmNlMDakeMhnQ9Xzgif5mzW3nfuP5L8",
+                  authDomain: "checklist-1-f8216.firebaseapp.com",
+                  projectId: "checklist-1-f8216",
+                  storageBucket: "checklist-1-f8216.firebasestorage.app",
+                  messagingSenderId: "912080341332",
+                  appId: "1:912080341332:web:c36eb66c252bcc8b7aa0c1"
+                };
+
+                const app = initializeApp(firebaseConfig);
+                const auth = getAuth(app);
+                dbRef = getFirestore(app);
+                const appId = typeof __app_id !== 'undefined' ? __app_id : 'industrial-ops-app';
+                tasksCollectionRef = collection(dbRef, 'artifacts', appId, 'public', 'data', 'industrial_tasks');
+                logDebug(`Firestore collection path: artifacts/${appId}/public/data/industrial_tasks`, 'success');
+
+                logDebug("Authenticating session anonymously...");
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                    logDebug("Authenticated with custom auth token.", "success");
+                } else {
+                    await signInAnonymously(auth);
+                    logDebug("Authenticated anonymously.", "success");
+                }
+
+                onAuthStateChanged(auth, async (user) => {
+                    if (!user) return;
+                    logDebug(`Active User UID: ${user.uid}`, "success");
+
+                    try {
+                        const snapshot = await getDocs(tasksCollectionRef);
+                        if (snapshot.empty) {
+                            logDebug("Remote collection empty. Seeding initial tasks...");
+                            const batch = writeBatch(dbRef);
+                            defaultTasks.forEach(t => {
+                                const ref = doc(tasksCollectionRef, String(t.id));
+                                batch.set(ref, t);
+                            });
+                            await batch.commit();
+                            logDebug("Seed tasks written successfully.", "success");
+                        }
+
+                        logDebug("Opening real-time onSnapshot sync stream...");
+                        onSnapshot(tasksCollectionRef, (snap) => {
+                            const start = Date.now();
+                            tasks = [];
+                            snap.forEach(d => tasks.push({ id: d.id, ...d.data() }));
+                            tasks.sort((a, b) => String(a.id).localeCompare(String(b.id), undefined, {numeric: true}));
+                            renderTasks();
+                            const ping = Date.now() - start;
+                            setStatusState('online', Math.max(4, ping));
+                        }, (err) => {
+                            logDebug(`Snapshot error: ${err.message}`, "error");
+                        });
+                    } catch (fetchErr) {
+                        logDebug(`Fetch exception: ${fetchErr.message}`, "error");
+                    }
+                });
+
+            } catch (e) {
+                logDebug(`Critical initialization error: ${e.message}`, "error");
+            }
+        }
+
+        async function persistTask(task) {
+            if (tasksCollectionRef && dbRef) {
+                try {
+                    const ref = doc(tasksCollectionRef, String(task.id));
+                    await setDoc(ref, task, { merge: true });
+                } catch (err) {
+                    logDebug(`Sync error writing task: ${err.message}`, "error");
+                }
+            }
+        }
+
+        window.toggleTask = async function(id) {
+            tasks = tasks.map(t => {
+                if (String(t.id) === String(id) && !t.type) {
+                    const updated = { ...t, completed: !t.completed };
+                    persistTask(updated);
+                    return updated;
+                }
+                return t;
+            });
+            renderTasks();
+        };
+
+        window.updateCounter = async function(id, delta) {
+            tasks = tasks.map(t => {
+                if (String(t.id) === String(id) && t.type === 'counter') {
+                    const newCurrent = Math.max(0, Math.min(t.target, t.current + delta));
+                    const updated = { 
+                        ...t, 
+                        current: newCurrent, 
+                        completed: newCurrent >= t.target,
+                        notes: `Tracked payload units (${newCurrent}/${t.target})`
+                    };
+                    persistTask(updated);
+                    return updated;
+                }
+                return t;
+            });
+            renderTasks();
+        };
+
+        window.updateSlider = function(id, val) {
+            const progressVal = parseInt(val, 10);
+            tasks = tasks.map(t => {
+                if (String(t.id) === String(id) && t.type === 'slider') {
+                    return { ...t, progress: progressVal, completed: progressVal >= 100 };
+                }
+                return t;
+            });
+            
+            const valSpan = document.getElementById(`slider-val-${id}`);
+            if (valSpan) valSpan.innerText = `${progressVal}%`;
+            updateProgressBarOnly();
+        };
+
+        window.finalizeSlider = async function(id) {
+            const t = tasks.find(item => String(item.id) === String(id));
+            if (t) {
+                await persistTask(t);
+            }
+        };
+
+        window.deleteTask = async function(id) {
+            tasks = tasks.filter(t => String(t.id) !== String(id));
+            if (tasksCollectionRef && dbRef) {
+                try {
+                    const ref = doc(tasksCollectionRef, String(id));
+                    const batch = writeBatch(dbRef);
+                    batch.delete(ref);
+                    await batch.commit();
+                } catch(e) {}
+            }
+            renderTasks();
+        };
+
+        window.addNewTask = async function(e) {
+            e.preventDefault();
+            const titleInput = document.getElementById('new-task-title');
+            const catInput = document.getElementById('new-task-category');
+            
+            const newTask = {
+                id: String(Date.now()),
+                title: titleInput.value.trim(),
+                category: catInput.value,
+                completed: false,
+                notes: "User-defined custom directive."
+            };
+            titleInput.value = '';
+            tasks.push(newTask);
+            await persistTask(newTask);
+            renderTasks();
+        };
+
+        window.resetTasks = function() {
+            showModal("Confirm Reset", "Reset all shared tasks to default specifications?", `
+                <button onclick="closeModal()" class="bg-zinc-800 hover:bg-zinc-700 text-zinc-200 px-4 py-2 rounded text-xs font-mono uppercase font-semibold">Cancel</button>
+                <button onclick="executeReset()" class="bg-red-600 hover:bg-red-500 text-white px-4 py-2 rounded text-xs font-mono uppercase font-semibold">Reset All</button>
+            `);
+        };
+
+        window.executeReset = async function() {
+            closeModal();
+            tasks = JSON.parse(JSON.stringify(defaultTasks));
+            if (tasksCollectionRef && dbRef) {
+                try {
+                    const batch = writeBatch(dbRef);
+                    defaultTasks.forEach(t => {
+                        const ref = doc(tasksCollectionRef, String(t.id));
+                        batch.set(ref, t);
+                    });
+                    await batch.commit();
+                } catch(e) {}
+            }
+            renderTasks();
+        };
+
+        window.setFilter = function(filter) {
+            currentFilter = filter;
+            ['all', 'active', 'completed'].forEach(f => {
+                const btn = document.getElementById(`filter-${f}`);
+                btn.className = f === filter 
+                    ? "flex-1 py-2.5 rounded bg-cyan-600 text-white font-bold transition shadow" 
+                    : "flex-1 py-2.5 rounded text-zinc-300 transition hover:text-white font-semibold";
+            });
+            renderTasks();
+        };
+
+        function getCategoryBadge(category) {
+            const colors = {
+                'Indoor': 'bg-purple-950 text-purple-200 border border-purple-700/60 font-semibold',
+                'Garage': 'bg-amber-950 text-amber-200 border border-amber-700/60 font-semibold',
+                'Yard & Outdoor': 'bg-emerald-950 text-emerald-200 border border-emerald-700/60 font-semibold',
+                'Pool & Patio': 'bg-cyan-950 text-cyan-200 border border-cyan-700/60 font-semibold'
+            };
+            return colors[category] || 'bg-zinc-800 text-zinc-200';
+        }
+
+        function calculateCompletedEquivalent() {
+            let totalScore = 0;
+            tasks.forEach(t => {
+                if (t.completed) {
+                    totalScore += 1;
+                } else if (t.type === 'slider' && t.progress > 0) {
+                    totalScore += (t.progress / 100);
+                }
+            });
+            return totalScore;
+        }
+
+        function updateProgressBarOnly() {
+            const totalCount = tasks.length;
+            const completedEquivalent = calculateCompletedEquivalent();
+            const percent = totalCount > 0 ? Math.round((completedEquivalent / totalCount) * 100) : 0;
+            const formattedCompleted = Number.isInteger(completedEquivalent) ? completedEquivalent : completedEquivalent.toFixed(1);
+
+            document.getElementById('progress-text').innerText = `${formattedCompleted} of ${totalCount} completed`;
+            document.getElementById('progress-percent').innerText = `${percent}%`;
+            document.getElementById('progress-bar').style.width = `${percent}%`;
+
+            const watermarkTL = document.getElementById('header-watermark-tl');
+            const watermarkBR = document.getElementById('header-watermark-br');
+            if (watermarkTL) watermarkTL.innerText = `${percent}%`;
+            if (watermarkBR) watermarkBR.innerText = `${percent}%`;
+        }
+
+        function renderTasks() {
+            const container = document.getElementById('task-list');
+            const filtered = tasks.filter(t => {
+                if (currentFilter === 'active') return !t.completed;
+                if (currentFilter === 'completed') return t.completed;
+                return true;
+            });
+
+            updateProgressBarOnly();
+
+            if (filtered.length === 0) {
+                container.innerHTML = `
+                    <div class="text-center py-10 bg-zinc-900 rounded-lg border border-zinc-700">
+                        <p class="text-zinc-400 text-xs font-mono uppercase tracking-wider font-semibold">No matching active logs</p>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = filtered.map(t => {
+                let interactiveElement = '';
+                
+                if (t.type === 'counter') {
+                    interactiveElement = `
+                        <div class="mt-3.5 bg-zinc-950 p-3.5 rounded border border-zinc-700">
+                            <div class="flex justify-between items-center mb-2.5">
+                                <span class="text-xs font-mono text-zinc-300 font-semibold">UNITS LOADED: <span class="text-cyan-400 font-bold text-sm">${t.current}</span> / ${t.target}</span>
+                                <div class="flex gap-2">
+                                    <button onclick="updateCounter('${t.id}', -1)" class="w-11 h-11 bg-zinc-900 border border-zinc-600 rounded text-zinc-100 font-mono font-bold text-lg flex items-center justify-center active:bg-zinc-800 shadow-sm transition">-</button>
+                                    <button onclick="updateCounter('${t.id}', 1)" class="w-11 h-11 bg-cyan-600 text-white rounded font-mono font-bold text-lg flex items-center justify-center active:bg-cyan-500 shadow-sm transition">+</button>
+                                </div>
+                            </div>
+                            <div class="flex gap-1.5 mt-2">
+                                ${Array.from({length: t.target}, (_, i) => `
+                                    <div class="h-3 flex-1 rounded-xs ${i < t.current ? 'bg-cyan-500 shadow-[0_0_6px_rgba(6,182,212,0.6)]' : 'bg-zinc-800 border border-zinc-700'} transition-all"></div>
+                                `).join('')}
+                            </div>
+                        </div>
+                    `;
+                } else if (t.type === 'slider') {
+                    interactiveElement = `
+                        <div class="mt-3.5 bg-zinc-950 p-3.5 rounded border border-zinc-700">
+                            <div class="flex justify-between items-center mb-2.5 text-xs font-mono">
+                                <span class="text-zinc-300 font-semibold uppercase">Operation Progress</span>
+                                <span id="slider-val-${t.id}" class="text-cyan-400 font-bold text-sm">${t.progress || 0}%</span>
+                            </div>
+                            <input type="range" min="0" max="100" value="${t.progress || 0}" 
+                                oninput="updateSlider('${t.id}', this.value)"
+                                ontouchend="finalizeSlider('${t.id}')"
+                                onmouseup="finalizeSlider('${t.id}')"
+                                class="w-full cursor-pointer py-2">
+                        </div>
+                    `;
+                }
+
+                const isChecked = t.completed ? 'checked' : '';
+                const checkboxOrIndicator = t.type 
+                    ? `<div class="mt-1 h-7 w-7 rounded flex items-center justify-center text-xs font-mono font-bold ${t.completed ? 'bg-emerald-600 text-white shadow-[0_0_8px_rgba(34,197,94,0.4)]' : 'bg-zinc-950 text-zinc-400 border border-zinc-600'}">${t.completed ? '✓' : '•'}</div>`
+                    : `<input type="checkbox" ${isChecked} onclick="toggleTask('${t.id}')" class="mt-1 h-7 w-7 cursor-pointer">`;
+
+                return `
+                    <div class="bg-zinc-900 p-4 rounded-lg border border-zinc-700 shadow-md flex items-start gap-3.5 transition">
+                        ${checkboxOrIndicator}
+                        <div class="flex-1 min-w-0">
+                            <div class="flex items-center justify-between gap-2">
+                                <span class="text-[10px] font-mono uppercase font-bold px-2 py-0.5 rounded ${getCategoryBadge(t.category)}">${t.category}</span>
+                                <button onclick="deleteTask('${t.id}')" class="text-zinc-400 hover:text-red-400 font-mono text-lg px-2.5 py-0.5 font-bold">&times;</button>
+                            </div>
+                            <h4 class="text-sm font-medium mt-2 leading-relaxed break-words ${t.completed ? 'completed-task text-zinc-500' : 'text-zinc-100 font-semibold'}">${t.title}</h4>
+                            ${t.notes ? `<p class="text-xs font-mono text-zinc-300 mt-1.5 leading-normal break-words">${t.notes}</p>` : ''}
+                            ${interactiveElement}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // Start initialization
+        initFirebase();
+    </script>
+</body>
+</html>
