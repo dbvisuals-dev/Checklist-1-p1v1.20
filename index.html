@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Industrial Field Task List - Cloud Sync</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Inter:wght@400;500;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; -webkit-tap-highlight-color: transparent; }
+        .mono-font { font-family: 'Share Tech Mono', monospace; }
+        .completed-task { opacity: 0.4; text-decoration: line-through; }
+        
+        /* Industrial range slider styling optimized for touch targets */
+        input[type=range] {
+            height: 12px;
+            border-radius: 4px;
+            appearance: none;
+            background: #27272a;
+            border: 1px solid #52525b;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            appearance: none;
+            width: 36px;
+            height: 28px;
+            border-radius: 4px;
+            background: #0ea5e9;
+            cursor: pointer;
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.3), 0 2px 6px rgba(0,0,0,0.6);
+            border: 1px solid #0284c7;
+        }
+        input[type=range]::-webkit-slider-thumb:active {
+            transform: scale(1.05);
+            background: #0284c7;
+        }
+
+        /* Custom checkbox style: optimized touch zone */
+        input[type=checkbox] {
+            appearance: none;
+            background-color: #09090b;
+            border: 1.5px solid #71717a;
+            border-radius: 0.375rem;
+            cursor: pointer;
+            display: grid;
+            place-content: center;
+            transition: all 0.2s ease;
+        }
+        input[type=checkbox]::before {
+            content: "";
+            width: 0.65rem;
+            height: 0.65rem;
+            transform: scale(0);
+            transition: 120ms transform ease-in-out;
+            box-shadow: inset 1em 1em #22c55e;
+            transform-origin: center;
+            clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%);
+        }
+        input[type=checkbox]:checked {
+            background-color: #052e16;
+            border-color: #22c55e;
+        }
+        input[type=checkbox]:checked::before {
+            transform: scale(1);
+        }
+    </style>
+</head>
+<body class="bg-zinc-950 text-zinc-100 min-h-screen pb-20 antialiased selection:bg-cyan-500 selection:text-white">
+    <!-- Header with Dual Live Watermarks -->
+    <header class="bg-zinc-900 text-zinc-100 pt-8 pb-8 px-5 border-b-4 border-cyan-500 shadow-2xl relative overflow-hidden">
+        <div id="header-watermark-tl" class="absolute left-2 -top-2 opacity-20 font-bold text-[7rem] leading-none mono-font pointer-events-none select-none text-zinc-600 tracking-tighter transition-all duration-300 z-0">0%</div>
+        <div id="header-watermark-br" class="absolute -right-6 -bottom-10 opacity-15 font-bold text-[11rem] leading-none mono-font pointer-events-none select-none text-cyan-400 tracking-tighter transition-all duration-300 z-0">0%</div>
+
+        <div class="max-w-md mx-auto relative z-10">
+            <div class="flex justify-between items-center mb-3">
+                <span class="text-[9px] mono-font uppercase tracking-widest bg-zinc-800/90 backdrop-blur text-zinc-300 px-2 py-0.5 rounded border border-zinc-700">CLOSE // HD-01</span>
+                <div class="flex gap-2">
+                    <span id="sync-status" class="text-[10px] font-mono uppercase bg-amber-500/20 text-amber-300 px-2.5 py-1 rounded border border-amber-500/40 flex items-center">Connecting...</span>
+                    <button onclick="resetTasks()" class="text-xs font-mono uppercase bg-zinc-800 hover:bg-zinc-700 text-zinc-200 px-3 py-1.5 rounded transition border border-zinc-600 active:scale-95 shadow-sm font-semibold">Reset</button>
+                </div>
+            </div>
+
+            <div class="flex justify-between items-center mb-4">
+                <div>
+                    <span class="text-[11px] mono-font uppercase tracking-wider bg-cyan-500/20 backdrop-blur text-cyan-300 px-2.5 py-1 rounded font-bold border border-cyan-500/40">STATUS: NETWORKED OPS</span>
+                    <h1 class="text-2xl font-bold mt-2 tracking-tight uppercase font-mono text-white">Job Site Checklist</h1>
+                </div>
+            </div>
+            
+            <!-- Progress Bar -->
+            <div class="mt-6 bg-zinc-950 p-4 rounded-lg border border-zinc-700/80 shadow-inner">
+                <div class="flex justify-between text-xs mb-2 font-mono uppercase tracking-wider font-semibold">
+                    <span id="progress-text" class="text-zinc-300">0 of 0 completed</span>
+                    <span id="progress-percent" class="text-cyan-400 font-bold">0%</span>
+                </div>
+                <div class="w-full bg-zinc-900 h-3 rounded-sm overflow-hidden p-0.5 border border-zinc-700">
+                    <div id="progress-bar" class="bg-cyan-500 h-full rounded-sm transition-all duration-300 w-0 shadow-[0_0_10px_rgba(6,182,212,0.6)]"></div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="max-w-md mx-auto px-4 mt-6 space-y-4">
+        <!-- Filter Tabs -->
+        <div class="flex bg-zinc-900 p-1 rounded-lg border border-zinc-700 text-xs font-mono uppercase shadow-sm">
+            <button onclick="setFilter('all')" id="filter-all" class="flex-1 py-2.5 rounded bg-cyan-600 text-white font-bold transition shadow">All Ops</button>
+            <button onclick="setFilter('active')" id="filter-active" class="flex-1 py-2.5 rounded text-zinc-300 transition hover:text-white font-semibold">Pending</button>
+            <button onclick="setFilter('completed')" id="filter-completed" class="flex-1 py-2.5 rounded text-zinc-300 transition hover:text-white font-semibold">Done</button>
+        </div>
+
+        <!-- Task List Container -->
+        <div id="task-list" class="space-y-3.5">
+            <!-- Rendered dynamically -->
+            <div class="text-center py-10 bg-zinc-900 rounded-lg border border-zinc-700">
+                <p class="text-zinc-400 text-xs font-mono uppercase tracking-wider font-semibold animate-pulse">Establishing secure link...</p>
+            </div>
+        </div>
+
+        <!-- Add Custom Task Form -->
+        <div class="mt-8 bg-zinc-900 p-5 rounded-lg border border-zinc-700 shadow-lg">
+            <h3 class="text-xs font-mono uppercase tracking-wider text-zinc-200 mb-3 flex items-center gap-2 font-bold">
+                <span class="text-cyan-400">[+]</span> Add Custom Directive
+            </h3>
+            <form onsubmit="addNewTask(event)" class="space-y-3">
+                <input type="text" id="new-task-title" placeholder="e.g., Secure perimeter gate" required
+                    class="w-full px-4 py-3 rounded border border-zinc-700 text-sm focus:outline-none focus:border-cyan-500 bg-zinc-950 text-zinc-100 placeholder-zinc-500 font-medium">
+                <div class="flex gap-2">
+                    <select id="new-task-category" class="flex-1 px-3 py-2.5 rounded border border-zinc-700 text-xs font-mono uppercase bg-zinc-950 text-zinc-200 font-semibold focus:outline-none focus:border-cyan-500">
+                        <option value="Indoor">Indoor</option>
+                        <option value="Garage">Garage</option>
+                        <option value="Yard & Outdoor">Yard & Outdoor</option>
+                        <option value="Pool & Patio">Pool & Patio</option>
+                    </select>
+                    <button type="submit" class="bg-cyan-600 hover:bg-cyan-500 text-white font-mono uppercase font-bold px-5 py-2.5 rounded text-xs transition shadow active:scale-95">Commit</button>
+                </div>
+            </form>
+        </div>
+    </main>
+
+    <!-- Firebase & Application Logic -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        const firebaseConfig = JSON.parse(__firebase_config);
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'industrial-checklist-app';
+
+        let currentFilter = 'all';
+        let tasks = [];
+        let timerInterval = null;
+
+        const SYNC_INTERVAL_MS = 5000; // 5 second sync refresh cycle window
+
+        const defaultTasks = [
+            { id: "1", title: "Fix living room curtain rod & brackets", category: "Indoor", completed: false, notes: "Secure loose anchor screws and check tension.", lastUpdated: Date.now() },
+            { id: "2", title: "Clean and rearrange garage", category: "Garage", completed: false, notes: "Sort bins, sweep floor, create clear walkways.", lastUpdated: Date.now() },
+            { id: "3", title: "Install tool & rake holder on garage wall", category: "Garage", completed: false, notes: "Find stud with stud finder before mounting rack.", lastUpdated: Date.now() },
+            { 
+                id: "4", 
+                title: "Acquire 10 bags of mulch from Home Depot", 
+                category: "Yard & Outdoor", 
+                type: "counter", 
+                current: 0, 
+                target: 10, 
+                completed: false, 
+                notes: "Tap buttons to track payload units (0/10)",
+                lastUpdated: Date.now()
+            },
+            { 
+                id: "5", 
+                title: "Pick up stone from Home Depot", 
+                category: "Yard & Outdoor", 
+                completed: false, 
+                notes: "Verify quantities and stone grade prior to dispatch.",
+                lastUpdated: Date.now()
+            },
+            { 
+                id: "6", 
+                title: "Spread mulch in garden beds", 
+                category: "Yard & Outdoor", 
+                type: "slider", 
+                progress: 0, 
+                completed: false, 
+                notes: "Adjust slider to 100% to finalize spreading operation.",
+                lastUpdated: Date.now()
+            },
+            { 
+                id: "7", 
+                title: "Lay down stone / gravel", 
+                category: "Yard & Outdoor", 
+                completed: false, 
+                notes: "Spread evenly over weed barrier fabric.",
+                lastUpdated: Date.now()
+            },
+            { id: "8", title: "Touch up white paint around pool area", category: "Pool & Patio", completed: false, notes: "Scrape flaky areas, prime, and apply weather-resistant white paint.", lastUpdated: Date.now() },
+            { id: "9", title: "Cut down palm limbs in backyard", category: "Yard & Outdoor", completed: false, notes: "Wear PPE gear, trim close to trunk safely.", lastUpdated: Date.now() },
+            { id: "10", title: "Clean and degrease BBQ grill", category: "Yard & Outdoor", completed: false, notes: "Soak grates in warm soapy water, scrub burners.", lastUpdated: Date.now() },
+            { id: "11", title: "Touch up nicks and scuffs on indoor walls", category: "Indoor", completed: false, notes: "Use matching wall paint sample and small artist brush.", lastUpdated: Date.now() }
+        ];
+
+        async function initAuth() {
+            try {
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+            } catch (err) {
+                console.error("Auth error:", err);
+            }
+        }
+
+        onAuthStateChanged(auth, (user) => {
+            const syncStatus = document.getElementById('sync-status');
+            if (user) {
+                syncStatus.innerText = "ONLINE";
+                syncStatus.className = "text-[10px] font-mono uppercase bg-emerald-500/20 text-emerald-300 px-2.5 py-1 rounded border border-emerald-500/40 flex items-center";
+                setupFirestoreSync();
+            } else {
+                syncStatus.innerText = "OFFLINE";
+                syncStatus.className = "text-[10px] font-mono uppercase bg-red-500/20 text-red-300 px-2.5 py-1 rounded border border-red-500/40 flex items-center";
+            }
+        });
+
+        function setupFirestoreSync() {
+            const tasksRef = collection(db, 'artifacts', appId, 'public', 'data', 'tasks');
+            
+            onSnapshot(tasksRef, (snapshot) => {
+                if (snapshot.empty) {
+                    defaultTasks.forEach(t => {
+                        setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tasks', t.id), t);
+                    });
+                } else {
+                    tasks = [];
+                    snapshot.forEach(docSnap => {
+                        tasks.push({ id: docSnap.id, ...docSnap.data() });
+                    });
+                    tasks.sort((a, b) => String(a.id).localeCompare(String(b.id), undefined, {numeric: true}));
+                    renderTasks();
+                }
+            }, (error) => {
+                console.error("Firestore sync error:", error);
+            });
+
+            // Start global tick for live counters/timers under each checkbox
+            if (timerInterval) clearInterval(timerInterval);
+            timerInterval = setInterval(updateLiveTimersAndCounters, 100);
+        }
+
+        function updateLiveTimersAndCounters() {
+            const now = Date.now();
+            tasks.forEach(t => {
+                const targetTime = (t.lastUpdated || now) + SYNC_INTERVAL_MS;
+                const timeLeft = Math.max(0, targetTime - now);
+                const secondsFloat = (timeLeft / 1000).toFixed(1);
+
+                // Update countdown element if present
+                const timerEl = document.getElementById(`timer-${t.id}`);
+                if (timerEl) {
+                    timerEl.innerText = `${secondsFloat}s`;
+                }
+
+                // Update counter ticks element if present
+                const counterEl = document.getElementById(`counter-tick-${t.id}`);
+                if (counterEl) {
+                    const elapsedSinceUpdate = Math.max(0, now - (t.lastUpdated || now));
+                    counterEl.innerText = `${elapsedSinceUpdate}ms`;
+                }
+            });
+        }
+
+        window.updateTaskField = async function(id, updatedFields) {
+            const timestamped = { ...updatedFields, lastUpdated: Date.now() };
+            tasks = tasks.map(t => t.id === String(id) ? { ...t, ...timestamped } : t);
+            renderTasks();
+            try {
+                const taskRef = doc(db, 'artifacts', appId, 'public', 'data', 'tasks', String(id));
+                await setDoc(taskRef, timestamped, { merge: true });
+            } catch (err) {
+                console.error("Update error:", err);
+            }
+        };
+
+        window.toggleTask = function(id) {
+            const task = tasks.find(t => t.id === String(id));
+            if (task && !task.type) {
+                window.updateTaskField(id, { completed: !task.completed });
+            }
+        };
+
+        window.updateCounter = function(id, delta) {
+            const task = tasks.find(t => t.id === String(id));
+            if (task && task.type === 'counter') {
+                const newCurrent = Math.max(0, Math.min(task.target, task.current + delta));
+                window.updateTaskField(id, {
+                    current: newCurrent,
+                    completed: newCurrent >= task.target,
+                    notes: `Tracked payload units (${newCurrent}/${task.target})`
+                });
+            }
+        };
+
+        window.updateSlider = function(id, val) {
+            const progressVal = parseInt(val, 10);
+            const valSpan = document.getElementById(`slider-val-${id}`);
+            if (valSpan) valSpan.innerText = `${progressVal}%`;
+            
+            const task = tasks.find(t => t.id === String(id));
+            if (task && task.type === 'slider') {
+                tasks = tasks.map(t => t.id === String(id) ? { ...t, progress: progressVal, completed: progressVal >= 100 } : t);
+                updateProgressBarOnly();
+            }
+        };
+
+        window.finalizeSlider = function(id, val) {
+            const progressVal = parseInt(val, 10);
+            window.updateTaskField(id, {
+                progress: progressVal,
+                completed: progressVal >= 100
+            });
+        };
+
+        window.deleteTask = async function(id) {
+            tasks = tasks.filter(t => t.id !== String(id));
+            renderTasks();
+            try {
+                await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tasks', String(id)));
+            } catch (err) {
+                console.error("Delete error:", err);
+            }
+        };
+
+        window.addNewTask = async function(e) {
+            e.preventDefault();
+            const titleInput = document.getElementById('new-task-title');
+            const catInput = document.getElementById('new-task-category');
+            const newId = String(Date.now());
+            
+            const newTask = {
+                id: newId,
+                title: titleInput.value.trim(),
+                category: catInput.value,
+                completed: false,
+                notes: "User-defined custom directive.",
+                lastUpdated: Date.now()
+            };
+
+            titleInput.value = '';
+            tasks.push(newTask);
+            renderTasks();
+
+            try {
+                await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tasks', newId), newTask);
+            } catch (err) {
+                console.error("Add task error:", err);
+            }
+        };
+
+        window.resetTasks = async function() {
+            if (confirm("Reset task parameters to default specifications for all users?")) {
+                try {
+                    for (let t of tasks) {
+                        await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tasks', String(t.id)));
+                    }
+                    for (let t of defaultTasks) {
+                        const freshItem = { ...t, lastUpdated: Date.now() };
+                        await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tasks', String(t.id)), freshItem);
+                    }
+                } catch (err) {
+                    console.error("Reset error:", err);
+                }
+            }
+        };
+
+        window.setFilter = function(filter) {
+            currentFilter = filter;
+            ['all', 'active', 'completed'].forEach(f => {
+                const btn = document.getElementById(`filter-${f}`);
+                btn.className = f === filter 
+                    ? "flex-1 py-2.5 rounded bg-cyan-600 text-white font-bold transition shadow" 
+                    : "flex-1 py-2.5 rounded text-zinc-300 transition hover:text-white font-semibold";
+            });
+            renderTasks();
+        };
+
+        function getCategoryBadge(category) {
+            const colors = {
+                'Indoor': 'bg-purple-950 text-purple-200 border border-purple-700/60 font-semibold',
+                'Garage': 'bg-amber-950 text-amber-200 border border-amber-700/60 font-semibold',
+                'Yard & Outdoor': 'bg-emerald-950 text-emerald-200 border border-emerald-700/60 font-semibold',
+                'Pool & Patio': 'bg-cyan-950 text-cyan-200 border border-cyan-700/60 font-semibold'
+            };
+            return colors[category] || 'bg-zinc-800 text-zinc-200';
+        }
+
+        function calculateCompletedEquivalent() {
+            let totalScore = 0;
+            tasks.forEach(t => {
+                if (t.completed) {
+                    totalScore += 1;
+                } else if (t.type === 'slider' && t.progress > 0) {
+                    totalScore += (t.progress / 100);
+                }
+            });
+            return totalScore;
+        }
+
+        function updateProgressBarOnly() {
+            const totalCount = tasks.length;
+            const completedEquivalent = calculateCompletedEquivalent();
+            const percent = totalCount > 0 ? Math.round((completedEquivalent / totalCount) * 100) : 0;
+            const formattedCompleted = Number.isInteger(completedEquivalent) ? completedEquivalent : completedEquivalent.toFixed(1);
+
+            const progText = document.getElementById('progress-text');
+            const progPercent = document.getElementById('progress-percent');
+            const progBar = document.getElementById('progress-bar');
+            
+            if (progText) progText.innerText = `${formattedCompleted} of ${totalCount} completed`;
+            if (progPercent) progPercent.innerText = `${percent}%`;
+            if (progBar) progBar.style.width = `${percent}%`;
+
+            const watermarkTL = document.getElementById('header-watermark-tl');
+            const watermarkBR = document.getElementById('header-watermark-br');
+            if (watermarkTL) watermarkTL.innerText = `${percent}%`;
+            if (watermarkBR) watermarkBR.innerText = `${percent}%`;
+        }
+
+        function renderTasks() {
+            const container = document.getElementById('task-list');
+            if (!container) return;
+
+            const filtered = tasks.filter(t => {
+                if (currentFilter === 'active') return !t.completed;
+                if (currentFilter === 'completed') return t.completed;
+                return true;
+            });
+
+            updateProgressBarOnly();
+
+            if (filtered.length === 0) {
+                container.innerHTML = `
+                    <div class="text-center py-10 bg-zinc-900 rounded-lg border border-zinc-700">
+                        <p class="text-zinc-400 text-xs font-mono uppercase tracking-wider font-semibold">No matching active logs</p>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = filtered.map(t => {
+                let interactiveElement = '';
+                
+                if (t.type === 'counter') {
+                    interactiveElement = `
+                        <div class="mt-3.5 bg-zinc-950 p-3.5 rounded border border-zinc-700">
+                            <div class="flex justify-between items-center mb-2.5">
+                                <span class="text-xs font-mono text-zinc-300 font-semibold">UNITS LOADED: <span class="text-cyan-400 font-bold text-sm">${t.current}</span> / ${t.target}</span>
+                                <div class="flex gap-2">
+                                    <button onclick="updateCounter('${t.id}', -1)" class="w-11 h-11 bg-zinc-900 border border-zinc-600 rounded text-zinc-100 font-mono font-bold text-lg flex items-center justify-center active:bg-zinc-800 shadow-sm transition">-</button>
+                                    <button onclick="updateCounter('${t.id}', 1)" class="w-11 h-11 bg-cyan-600 text-white rounded font-mono font-bold text-lg flex items-center justify-center active:bg-cyan-500 shadow-sm transition">+</button>
+                                </div>
+                            </div>
+                            <div class="flex gap-1.5 mt-2">
+                                ${Array.from({length: t.target}, (_, i) => `
+                                    <div class="h-3 flex-1 rounded-xs ${i < t.current ? 'bg-cyan-500 shadow-[0_0_6px_rgba(6,182,212,0.6)]' : 'bg-zinc-800 border border-zinc-700'} transition-all"></div>
+                                `).join('')}
+                            </div>
+                        </div>
+                    `;
+                } else if (t.type === 'slider') {
+                    interactiveElement = `
+                        <div class="mt-3.5 bg-zinc-950 p-3.5 rounded border border-zinc-700">
+                            <div class="flex justify-between items-center mb-2.5 text-xs font-mono">
+                                <span class="text-zinc-300 font-semibold uppercase">Operation Progress</span>
+                                <span id="slider-val-${t.id}" class="text-cyan-400 font-bold text-sm">${t.progress}%</span>
+                            </div>
+                            <input type="range" min="0" max="100" value="${t.progress}" 
+                                oninput="updateSlider('${t.id}', this.value)"
+                                ontouchend="finalizeSlider('${t.id}', this.value)"
+                                onmouseup="finalizeSlider('${t.id}', this.value)"
+                                class="w-full cursor-pointer py-2">
+                        </div>
+                    `;
+                }
+
+                const isChecked = t.completed ? 'checked' : '';
+                const checkboxOrIndicator = t.type 
+                    ? `<div class="mt-1 h-7 w-7 rounded flex items-center justify-center text-xs font-mono font-bold ${t.completed ? 'bg-emerald-600 text-white shadow-[0_0_8px_rgba(34,197,94,0.4)]' : 'bg-zinc-950 text-zinc-400 border border-zinc-600'}">${t.completed ? '✓' : '•'}</div>`
+                    : `<input type="checkbox" ${isChecked} onclick="toggleTask('${t.id}')" class="mt-1 h-7 w-7 cursor-pointer">`;
+
+                return `
+                    <div class="bg-zinc-900 p-4 rounded-lg border border-zinc-700 shadow-md flex items-start gap-3.5 transition">
+                        <div class="flex flex-col items-center">
+                            ${checkboxOrIndicator}
+                            <!-- Live Tick & Countdown Timer Below Checkbox -->
+                            <div class="mt-2 text-center select-none font-mono">
+                                <div id="counter-tick-${t.id}" class="text-[9px] text-cyan-400 font-semibold tracking-tighter" title="Elapsed millisecond tick counter">0ms</div>
+                                <div id="timer-${t.id}" class="text-[9px] text-zinc-400 font-semibold tracking-tight mt-0.5" title="Sync live update window countdown">5.0s</div>
+                            </div>
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <div class="flex items-center justify-between gap-2">
+                                <span class="text-[10px] font-mono uppercase font-bold px-2 py-0.5 rounded ${getCategoryBadge(t.category)}">${t.category}</span>
+                                <button onclick="deleteTask('${t.id}')" class="text-zinc-400 hover:text-red-400 font-mono text-lg px-2.5 py-0.5 font-bold">&times;</button>
+                            </div>
+                            <h4 class="text-sm font-medium mt-2 leading-relaxed break-words ${t.completed ? 'completed-task text-zinc-500' : 'text-zinc-100 font-semibold'}">${t.title}</h4>
+                            ${t.notes ? `<p class="text-xs font-mono text-zinc-300 mt-1.5 leading-normal break-words">${t.notes}</p>` : ''}
+                            ${interactiveElement}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        initAuth();
+    </script>
+</body>
+</html>
