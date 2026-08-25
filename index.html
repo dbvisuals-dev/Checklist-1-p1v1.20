@@ -76,12 +76,15 @@
                     <span id="conn-text" class="text-zinc-300 uppercase tracking-wider text-[10px]">Connecting...</span>
                     <span id="ping-text" class="text-zinc-500 text-[10px] pl-1 border-l border-zinc-700">--ms</span>
                 </div>
-                <button onclick="resetTasks()" class="uppercase bg-zinc-800 hover:bg-zinc-700 text-zinc-200 px-3 py-1.5 rounded transition border border-zinc-600 active:scale-95 shadow-sm font-semibold">Reset Docs</button>
+                <div class="flex gap-2">
+                    <button onclick="toggleDebugConsole()" class="uppercase bg-zinc-800 hover:bg-zinc-700 text-cyan-400 px-2.5 py-1 rounded transition border border-zinc-700 font-semibold text-[10px]">Debug Log</button>
+                    <button onclick="resetTasks()" class="uppercase bg-zinc-800 hover:bg-zinc-700 text-zinc-200 px-3 py-1.5 rounded transition border border-zinc-600 active:scale-95 shadow-sm font-semibold">Reset Docs</button>
+                </div>
             </div>
 
             <div class="flex justify-between items-center mb-4">
                 <div>
-                    <span class="text-[11px] mono-font uppercase tracking-wider bg-cyan-500/20 backdrop-blur text-cyan-300 px-2.5 py-1 rounded font-bold border border-cyan-500/40">STATUS: SYNCED OPS</span>
+                    <span id="sync-mode-badge" class="text-[11px] mono-font uppercase tracking-wider bg-cyan-500/20 backdrop-blur text-cyan-300 px-2.5 py-1 rounded font-bold border border-cyan-500/40">STATUS: INITIALIZING</span>
                     <h1 class="text-2xl font-bold mt-2 tracking-tight uppercase font-mono text-white">Job Site Checklist</h1>
                 </div>
             </div>
@@ -136,6 +139,29 @@
         </div>
     </main>
 
+    <!-- Connection Debug Console Modal (Stays open until you click Hide Overlay) -->
+    <div id="debug-console-modal" class="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex items-center justify-center p-4">
+        <div class="bg-zinc-900 border-2 border-cyan-500/80 rounded-lg p-5 max-w-sm w-full shadow-[0_0_30px_rgba(6,182,212,0.3)]">
+            <div class="flex items-center justify-between mb-3 pb-2 border-b border-zinc-800">
+                <div class="flex items-center gap-2">
+                    <span id="debug-dot" class="w-3 h-3 rounded-full bg-amber-500 animate-ping"></span>
+                    <h3 class="text-xs font-mono uppercase font-bold text-cyan-400 tracking-wider">Connection Debugger</h3>
+                </div>
+                <span id="debug-timer" class="text-[10px] font-mono text-zinc-500">Active</span>
+            </div>
+            <p id="debug-subtitle" class="text-xs font-mono text-zinc-300 mb-4 leading-relaxed">
+                Evaluating Firebase cloud socket connection and authentication state...
+            </p>
+            <div id="debug-log-box" class="bg-zinc-950 p-3 rounded border border-zinc-800 h-40 overflow-y-auto font-mono text-[10px] text-zinc-400 space-y-1.5 select-all">
+                <div>[SYSTEM] Initializing client scripts...</div>
+            </div>
+            <div class="mt-4 pt-3 border-t border-zinc-800 flex justify-between items-center">
+                <span class="text-[10px] font-mono text-zinc-500">Stays open until closed</span>
+                <button onclick="closeDebugConsole()" class="bg-cyan-600 hover:bg-cyan-500 text-white px-4 py-2 rounded text-xs font-mono uppercase font-bold shadow">Hide Overlay</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Custom Modal for Alerts -->
     <div id="custom-modal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
         <div class="bg-zinc-900 border border-zinc-700 rounded-lg p-6 max-w-sm w-full shadow-2xl">
@@ -153,17 +179,57 @@
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, collection, doc, setDoc, getDocs, onSnapshot, writeBatch } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        const firebaseConfig = JSON.parse(__firebase_config);
-        const app = initializeApp(firebaseConfig);
-        const auth = getAuth(app);
-        const db = getFirestore(app);
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-        const tasksCollectionRef = collection(db, 'artifacts', appId, 'public', 'data', 'industrial_tasks');
+        function logDebug(msg, type = 'info') {
+            const box = document.getElementById('debug-log-box');
+            if (!box) return;
+            const colorClass = type === 'error' ? 'text-red-400 font-bold' : (type === 'success' ? 'text-emerald-400 font-bold' : 'text-zinc-300');
+            const time = new Date().toISOString().slice(11, 19);
+            box.innerHTML += `<div class="${colorClass}">[${time}] ${msg}</div>`;
+            box.scrollTop = box.scrollHeight;
+        }
+
+        window.closeDebugConsole = function() {
+            document.getElementById('debug-console-modal').classList.add('hidden');
+        };
+
+        window.toggleDebugConsole = function() {
+            const modal = document.getElementById('debug-console-modal');
+            modal.classList.toggle('hidden');
+        };
+
+        function setStatusState(state, pingMs = 0) {
+            const indicator = document.getElementById('conn-indicator');
+            const text = document.getElementById('conn-text');
+            const pingText = document.getElementById('ping-text');
+            const badge = document.getElementById('sync-mode-badge');
+            const debugDot = document.getElementById('debug-dot');
+
+            if (state === 'online') {
+                indicator.className = "w-2 h-2 rounded-full bg-emerald-500";
+                text.innerText = "ONLINE SYNC";
+                badge.innerText = "STATUS: CLOUD SYNCED";
+                pingText.innerText = `${pingMs}ms`;
+                if (debugDot) debugDot.className = "w-3 h-3 rounded-full bg-emerald-500";
+            } else if (state === 'local') {
+                indicator.className = "w-2 h-2 rounded-full bg-cyan-400";
+                text.innerText = "LOCAL MODE";
+                badge.innerText = "STATUS: LOCAL STORAGE";
+                pingText.innerText = "0ms";
+                if (debugDot) debugDot.className = "w-3 h-3 rounded-full bg-cyan-400";
+            } else {
+                indicator.className = "w-2 h-2 rounded-full bg-amber-500 animate-pulse";
+                text.innerText = "CONNECTING...";
+                badge.innerText = "STATUS: CONNECTING";
+                pingText.innerText = "--ms";
+                if (debugDot) debugDot.className = "w-3 h-3 rounded-full bg-amber-500 animate-ping";
+            }
+        }
 
         let currentFilter = 'all';
         let tasks = [];
-        let isSyncing = false;
-        let lastPingTime = Date.now();
+        let isCloudMode = false;
+        let dbRef = null;
+        let tasksCollectionRef = null;
 
         const defaultTasks = [
             { id: "1", title: "Fix living room curtain rod & brackets", category: "Indoor", completed: false, notes: "Secure loose anchor screws and check tension." },
@@ -178,6 +244,29 @@
             { id: "10", title: "Clean and degrease BBQ grill", category: "Yard & Outdoor", completed: false, notes: "Soak grates in warm soapy water, scrub burners." },
             { id: "11", title: "Touch up nicks and scuffs on indoor walls", category: "Indoor", completed: false, notes: "Use matching wall paint sample and small artist brush." }
         ];
+
+        function loadLocalFallback() {
+            logDebug("Activating Local Storage Fallback Mode...", "info");
+            const saved = localStorage.getItem('industrial_tasks_local');
+            if (saved) {
+                try {
+                    tasks = JSON.parse(saved);
+                    logDebug(`Loaded ${tasks.length} tasks from localStorage.`, "success");
+                } catch(e) {
+                    tasks = [...defaultTasks];
+                }
+            } else {
+                tasks = [...defaultTasks];
+                saveLocal();
+            }
+            isCloudMode = false;
+            setStatusState('local');
+            renderTasks();
+        }
+
+        function saveLocal() {
+            localStorage.setItem('industrial_tasks_local', JSON.stringify(tasks));
+        }
 
         function showModal(title, message, customActionsHTML = null) {
             document.getElementById('modal-title').innerText = title;
@@ -195,80 +284,84 @@
             document.getElementById('custom-modal').classList.add('hidden');
         };
 
-        function updateConnectionStatus(status, pingMs) {
-            const indicator = document.getElementById('conn-indicator');
-            const text = document.getElementById('conn-text');
-            const pingText = document.getElementById('ping-text');
-            
-            if (status === 'connected') {
-                indicator.className = "w-2 h-2 rounded-full bg-emerald-500";
-                text.innerText = "ONLINE SYNC";
-                if (pingMs) pingText.innerText = `${pingMs}ms`;
-            } else if (status === 'syncing') {
-                indicator.className = "w-2 h-2 rounded-full bg-cyan-400 animate-pulse";
-                text.innerText = "SYNCING...";
-            } else {
-                indicator.className = "w-2 h-2 rounded-full bg-red-500";
-                text.innerText = "OFFLINE";
-                pingText.innerText = "--ms";
-            }
-        }
-
-        async function initAuthAndData() {
+        // Initialize Firebase
+        async function initFirebase() {
             try {
-                updateConnectionStatus('syncing');
+                if (typeof __firebase_config === 'undefined' || !__firebase_config) {
+                    logDebug("No __firebase_config found in environment. Switching to local mode.", "error");
+                    loadLocalFallback();
+                    return;
+                }
+
+                logDebug("Parsing __firebase_config...");
+                const firebaseConfig = JSON.parse(__firebase_config);
+                const app = initializeApp(firebaseConfig);
+                const auth = getAuth(app);
+                dbRef = getFirestore(app);
+                const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+                tasksCollectionRef = collection(dbRef, 'artifacts', appId, 'public', 'data', 'industrial_tasks');
+                logDebug(`Firestore path initialized: artifacts/${appId}/public/data/industrial_tasks`);
+
+                logDebug("Authenticating user session...");
                 if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
                     await signInWithCustomToken(auth, __initial_auth_token);
+                    logDebug("Signed in with custom auth token.", "success");
                 } else {
                     await signInAnonymously(auth);
+                    logDebug("Signed in anonymously.", "success");
                 }
-            } catch (err) {
-                updateConnectionStatus('error');
+
+                onAuthStateChanged(auth, async (user) => {
+                    if (!user) return;
+                    logDebug(`Authenticated UID: ${user.uid}`, "success");
+                    isCloudMode = true;
+
+                    try {
+                        const snapshot = await getDocs(tasksCollectionRef);
+                        if (snapshot.empty) {
+                            logDebug("Remote collection empty. Seeding default tasks...");
+                            const batch = writeBatch(dbRef);
+                            defaultTasks.forEach(t => {
+                                const ref = doc(tasksCollectionRef, String(t.id));
+                                batch.set(ref, t);
+                            });
+                            await batch.commit();
+                        }
+
+                        onSnapshot(tasksCollectionRef, (snap) => {
+                            const start = Date.now();
+                            tasks = [];
+                            snap.forEach(d => tasks.push({ id: d.id, ...d.data() }));
+                            tasks.sort((a, b) => String(a.id).localeCompare(String(b.id), undefined, {numeric: true}));
+                            renderTasks();
+                            const ping = Date.now() - start;
+                            setStatusState('online', Math.max(4, ping));
+                        }, (err) => {
+                            logDebug(`Snapshot stream error: ${err.message}`, "error");
+                        });
+                    } catch (fetchErr) {
+                        logDebug(`Fetch error: ${fetchErr.message}`, "error");
+                        loadLocalFallback();
+                    }
+                });
+
+            } catch (e) {
+                logDebug(`Firebase connection error: ${e.message}`, "error");
+                logDebug("Falling back to standalone local storage mode.", "info");
+                loadLocalFallback();
             }
         }
 
-        onAuthStateChanged(auth, async (user) => {
-            if (!user) return;
-            
-            // Check if initial tasks exist
-            try {
-                const snapshot = await getDocs(tasksCollectionRef);
-                if (snapshot.empty) {
-                    const batch = writeBatch(db);
-                    defaultTasks.forEach(t => {
-                        const ref = doc(tasksCollectionRef, String(t.id));
-                        batch.set(ref, t);
-                    });
-                    await batch.commit();
+        async function persistTask(task) {
+            if (isCloudMode && tasksCollectionRef && dbRef) {
+                try {
+                    const ref = doc(tasksCollectionRef, String(task.id));
+                    await setDoc(ref, task, { merge: true });
+                } catch (err) {
+                    logDebug(`Cloud sync error on update: ${err.message}`, "error");
                 }
-
-                // Listen to live updates
-                onSnapshot(tasksCollectionRef, (snapshot) => {
-                    const startMs = Date.now();
-                    tasks = [];
-                    snapshot.forEach(docSnap => {
-                        tasks.push({ id: docSnap.id, ...docSnap.data() });
-                    });
-                    // Sort tasks by numeric/string ID stability
-                    tasks.sort((a, b) => String(a.id).localeCompare(String(b.id), undefined, {numeric: true}));
-                    
-                    renderTasks();
-                    const ping = Date.now() - startMs;
-                    updateConnectionStatus('connected', Math.max(5, ping));
-                }, (error) => {
-                    updateConnectionStatus('error');
-                });
-            } catch (e) {
-                updateConnectionStatus('error');
-            }
-        });
-
-        async function saveTaskToFirebase(task) {
-            try {
-                const ref = doc(tasksCollectionRef, String(task.id));
-                await setDoc(ref, task, { merge: true });
-            } catch (e) {
-                updateConnectionStatus('error');
+            } else {
+                saveLocal();
             }
         }
 
@@ -276,7 +369,7 @@
             tasks = tasks.map(t => {
                 if (String(t.id) === String(id) && !t.type) {
                     const updated = { ...t, completed: !t.completed };
-                    saveTaskToFirebase(updated);
+                    persistTask(updated);
                     return updated;
                 }
                 return t;
@@ -294,7 +387,7 @@
                         completed: newCurrent >= t.target,
                         notes: `Tracked payload units (${newCurrent}/${t.target})`
                     };
-                    saveTaskToFirebase(updated);
+                    persistTask(updated);
                     return updated;
                 }
                 return t;
@@ -319,18 +412,23 @@
         window.finalizeSlider = async function(id) {
             const t = tasks.find(item => String(item.id) === String(id));
             if (t) {
-                await saveTaskToFirebase(t);
+                await persistTask(t);
             }
         };
 
         window.deleteTask = async function(id) {
-            try {
-                const ref = doc(tasksCollectionRef, String(id));
-                // Delete by setting empty or via deleteDoc (import deleteDoc if needed, or overwrite)
-                const batch = writeBatch(db);
-                batch.delete(ref);
-                await batch.commit();
-            } catch(e) {}
+            tasks = tasks.filter(t => String(t.id) !== String(id));
+            if (isCloudMode && tasksCollectionRef && dbRef) {
+                try {
+                    const ref = doc(tasksCollectionRef, String(id));
+                    const batch = writeBatch(dbRef);
+                    batch.delete(ref);
+                    await batch.commit();
+                } catch(e) {}
+            } else {
+                saveLocal();
+            }
+            renderTasks();
         };
 
         window.addNewTask = async function(e) {
@@ -346,11 +444,13 @@
                 notes: "User-defined custom directive."
             };
             titleInput.value = '';
-            await saveTaskToFirebase(newTask);
+            tasks.push(newTask);
+            await persistTask(newTask);
+            renderTasks();
         };
 
         window.resetTasks = function() {
-            showModal("Confirm Reset", "Reset all shared tasks to default site specifications across all active terminals?", `
+            showModal("Confirm Reset", "Reset all tasks to default site specifications?", `
                 <button onclick="closeModal()" class="bg-zinc-800 hover:bg-zinc-700 text-zinc-200 px-4 py-2 rounded text-xs font-mono uppercase font-semibold">Cancel</button>
                 <button onclick="executeReset()" class="bg-red-600 hover:bg-red-500 text-white px-4 py-2 rounded text-xs font-mono uppercase font-semibold">Reset All</button>
             `);
@@ -358,18 +458,20 @@
 
         window.executeReset = async function() {
             closeModal();
-            try {
-                updateConnectionStatus('syncing');
-                const batch = writeBatch(db);
-                // Clear and repopulate
-                defaultTasks.forEach(t => {
-                    const ref = doc(tasksCollectionRef, String(t.id));
-                    batch.set(ref, t);
-                });
-                await batch.commit();
-            } catch(e) {
-                updateConnectionStatus('error');
+            tasks = JSON.parse(JSON.stringify(defaultTasks));
+            if (isCloudMode && tasksCollectionRef && dbRef) {
+                try {
+                    const batch = writeBatch(dbRef);
+                    defaultTasks.forEach(t => {
+                        const ref = doc(tasksCollectionRef, String(t.id));
+                        batch.set(ref, t);
+                    });
+                    await batch.commit();
+                } catch(e) {}
+            } else {
+                saveLocal();
             }
+            renderTasks();
         };
 
         window.setFilter = function(filter) {
@@ -498,7 +600,8 @@
             }).join('');
         }
 
-        initAuthAndData();
+        // Start initialization
+        initFirebase();
     </script>
 </body>
 </html>
